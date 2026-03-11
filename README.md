@@ -1,16 +1,90 @@
-# React + Vite
+# 🎓 Campus Event Countdown Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A real-time countdown application that helps students stay on top of deadlines and campus events through **Live Urgency Awareness** — replacing traditional calendar views with dynamic, ticking countdowns that make time feel real.
 
-Currently, two official plugins are available:
+Built for **CEN 5035-042 Software Engineering**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Live Demo
 
-## React Compiler
+[View Deployed App](https://campus-countdown.vercel.app)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+> Replace the link above with your actual Vercel URL.
 
-## Expanding the ESLint configuration
+## 📸 Features
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Dynamic Countdown Engine** — Real-time countdowns (days, hours, minutes, seconds) for every event
+- **Urgency-Based Visual System** — Cards automatically change color based on how soon the deadline is:
+  - 🔴 **Critical** (< 24 hours) — Red, pulsing animation
+  - 🟠 **Urgent** (< 3 days) — Amber
+  - 🔵 **Soon** (< 7 days) — Blue
+  - ⚫ **Relaxed** (7+ days) — Dark
+- **Filtered Event Feed** — Toggle between All, Academic, and Social events
+- **Custom Deadlines** — Add your own events with title, date/time, and category
+- **Pin & Delete** — Star important events to pin them to the top
+- **Local Storage Persistence** — Custom events are saved across browser sessions
+- **Next Up Banner** — Highlights the nearest upcoming deadline at the top
+
+## 🛠️ Tech Stack
+
+| Technology | Purpose |
+|------------|---------|
+| React | UI components and state management |
+| Tailwind CSS | Utility-first styling |
+| Vite | Build tool and dev server |
+| Vercel | Deployment and hosting |
+| localStorage | Client-side data persistence |
+
+## 📦 Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or later)
+- Git
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/campus-countdown.git
+   cd campus-countdown
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open `http://localhost:5173` in your browser.
+
+## 📁 Project Structure
+
+```
+campus-countdown/
+├── public/
+├── src/
+│   ├── App.jsx          # Main countdown component
+│   ├── main.jsx         # Entry point
+│   └── index.css        # Tailwind import
+├── index.html
+├── vite.config.js       # Vite + Tailwind config
+├── package.json
+└── README.md
+```
+
+## 🧠 Concept: Live Urgency Awareness
+
+Traditional calendars show dates — this app shows **time remaining**. By visualizing urgency through color, animation, and real-time ticking, students can:
+
+- **Prioritize** tasks based on visual urgency cues
+- **Plan ahead** by seeing exactly how much time is left
+- **Reduce stress** by staying aware of upcoming deadlines
+- **Balance** academic responsibilities with social events
+
+## 📄 License
+
+This project is built for educational purposes as part of CEN 5035-042 Software Engineering.
