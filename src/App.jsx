@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
 import {
   getActiveAccount,
+  hasLocalAccounts,
   registerLocalAccount,
   signInLocalAccount,
   signOutLocalAccount,
@@ -211,7 +212,6 @@ export default function App() {
   const [newDate, setNewDate] = useState("");
   const [newCat, setNewCat] = useState("academic");
   const [showImportQrModal, setShowImportQrModal] = useState(false);
-  const [importPayload, setImportPayload] = useState("");
   const [importMessage, setImportMessage] = useState({ type: "idle", text: "" });
   const [importCameraState, setImportCameraState] = useState("idle");
   const importScannerRef = useRef(null);
@@ -226,6 +226,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [activeAccount, setActiveAccount] = useState(() => getActiveAccount());
+  const [hasAccounts, setHasAccounts] = useState(() => hasLocalAccounts());
   const [accountMessage, setAccountMessage] = useState({ type: "idle", text: "" });
   const [accountBusy, setAccountBusy] = useState(false);
   const [ssoBusy, setSsoBusy] = useState(false);
@@ -248,13 +249,11 @@ export default function App() {
 
   const closeImportQrModal = useCallback(() => {
     setShowImportQrModal(false);
-    setImportPayload("");
     setImportMessage({ type: "idle", text: "" });
     setImportCameraState("idle");
   }, []);
 
   const openImportQrModal = useCallback(() => {
-    setImportPayload("");
     setImportMessage({ type: "idle", text: "" });
     setImportCameraState("loading");
     setShowImportQrModal(true);
@@ -280,14 +279,6 @@ export default function App() {
       closeImportQrModal();
     }, 900);
   }, [closeImportQrModal]);
-
-  const importFromPayloadInput = useCallback(() => {
-    try {
-      createEventFromQr(importPayload);
-    } catch (error) {
-      setImportMessage({ type: "error", text: error.message || "Could not import event QR." });
-    }
-  }, [createEventFromQr, importPayload]);
 
   const closeQrModal = useCallback(() => {
     setShowQrModal(false);
@@ -430,6 +421,7 @@ export default function App() {
         : await signInLocalAccount({ schoolEmail: emailValue, password });
 
       setActiveAccount(account);
+      setHasAccounts(true);
       setAccountMessage({
         type: "success",
         text: authMode === "create" ? "Account created. You are signed in." : "Signed in successfully.",
@@ -448,6 +440,8 @@ export default function App() {
   const signOut = useCallback(() => {
     signOutLocalAccount();
     setActiveAccount(null);
+    setHasAccounts(hasLocalAccounts());
+    setAuthMode("signin");
     setAccountMessage({ type: "idle", text: "" });
     setShowAccountModal(false);
     resetAccountForm();
@@ -536,11 +530,18 @@ export default function App() {
               Campus Countdown
             </h1>
           </div>
-          <button onClick={() => openAccountModal(activeAccount ? "signin" : "create")} style={btnStyle(false)}>
-            {activeAccount ? "Account" : "Create Account"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => openAccountModal(activeAccount ? "signin" : (hasAccounts ? "signin" : "create"))} style={btnStyle(false)}>
+              {activeAccount ? "Account" : (hasAccounts ? "Sign In" : "Create Account")}
+            </button>
+            {activeAccount && (
+              <button onClick={signOut} style={btnStyle(false)}>
+                Sign Out
+              </button>
+            )}
+          </div>
         </div>
-        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {activeAccount && (
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, background: "#34d399", color: "#052e16", padding: "3px 9px", borderRadius: 99 }}>
               Signed In
@@ -582,16 +583,9 @@ export default function App() {
             <button key={val} onClick={() => setFilter(val)} style={btnStyle(filter === val)}>{label}</button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {activeAccount && (
-            <button onClick={signOut} style={btnStyle(false)}>
-              Sign Out
-            </button>
-          )}
-          <button onClick={() => setShowAdd(!showAdd)} style={{ ...btnStyle(false), background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" }}>
-            {showAdd ? "Cancel" : "+ Add Event"}
-          </button>
-        </div>
+        <button onClick={() => setShowAdd(!showAdd)} style={{ ...btnStyle(false), background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" }}>
+          {showAdd ? "Cancel" : "+ Add Event"}
+        </button>
       </div>
 
       {showAccountModal && (
@@ -599,41 +593,51 @@ export default function App() {
           <div style={{ width: "100%", maxWidth: 520, background: "linear-gradient(145deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 20, boxShadow: "0 24px 50px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div>
+                <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3 }}>
+                  {activeAccount ? "Account Center" : "Create or sign in"}
+                </h3>
               </div>
               <button onClick={closeAccountModal} style={{ background: "rgba(148,163,184,0.2)", border: "none", color: "#e2e8f0", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
                 ✕
               </button>
             </div>
 
-            <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-              <button onClick={() => setAuthMode("create")} style={{ ...btnStyle(authMode === "create"), flex: 1 }}>
-                Create Account
-              </button>
-              <button onClick={() => setAuthMode("signin")} style={{ ...btnStyle(authMode === "signin"), flex: 1 }}>
-                Sign In
-              </button>
-            </div>
+            {!activeAccount && (
+              <>
+                <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+                  <button onClick={() => setAuthMode("create")} style={{ ...btnStyle(authMode === "create"), flex: 1 }}>
+                    Create Account
+                  </button>
+                  <button onClick={() => setAuthMode("signin")} style={{ ...btnStyle(authMode === "signin"), flex: 1 }}>
+                    Sign In
+                  </button>
+                </div>
 
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {authMode === "create" && (
-                <input placeholder="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
-              )}
-              <input placeholder="School email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} style={inputStyle} />
-              <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
-              {authMode === "create" && (
-                <input placeholder="Confirm password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} />
-              )}
-              <button
-                onClick={submitAccountForm}
-                disabled={accountBusy}
-                style={{ padding: "12px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: accountBusy ? "not-allowed" : "pointer", opacity: accountBusy ? 0.7 : 1 }}
-              >
-                {accountBusy ? "Please wait..." : authMode === "create" ? "Create Account" : "Sign In"}
-              </button>
-            </div>
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {authMode === "create" && (
+                    <input placeholder="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
+                  )}
+                  <input placeholder="School email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} style={inputStyle} />
+                  <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+                  {authMode === "create" && (
+                    <input placeholder="Confirm password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} />
+                  )}
+                  <button
+                    onClick={submitAccountForm}
+                    disabled={accountBusy}
+                    style={{ padding: "12px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: accountBusy ? "not-allowed" : "pointer", opacity: accountBusy ? 0.7 : 1 }}
+                  >
+                    {accountBusy ? "Please wait..." : authMode === "create" ? "Create Account" : "Sign In"}
+                  </button>
+                </div>
+              </>
+            )}
 
             {activeAccount && (
               <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid rgba(148,163,184,0.22)", background: "rgba(15,23,42,0.55)" }}>
+                <p style={{ margin: "0 0 8px", fontSize: 12, color: "#94a3b8" }}>
+                  Signed in as {activeAccount.fullName} ({activeAccount.schoolEmail})
+                </p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={connectSso} disabled={ssoBusy || activeAccount.ssoLinked} style={{ ...btnStyle(false), background: activeAccount.ssoLinked ? "rgba(52,211,153,0.2)" : "rgba(147,197,253,0.2)", color: activeAccount.ssoLinked ? "#34d399" : "#93c5fd", cursor: ssoBusy || activeAccount.ssoLinked ? "not-allowed" : "pointer", opacity: ssoBusy ? 0.75 : 1 }}>
                     {activeAccount.ssoLinked ? "Canvas Connected" : ssoBusy ? "Connecting..." : "Connect School SSO"}

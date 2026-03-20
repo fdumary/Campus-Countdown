@@ -40,6 +40,10 @@ export function getActiveAccount() {
   return sanitizeAccount(account);
 }
 
+export function hasLocalAccounts() {
+  return loadAccounts().length > 0;
+}
+
 export async function registerLocalAccount({ fullName, schoolEmail, password }) {
   await wait(300);
 
