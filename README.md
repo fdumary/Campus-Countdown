@@ -98,12 +98,10 @@ Traditional calendars show dates — this app shows **time remaining**. By visua
 
 ## 👤 Account + SSO Flow
 
-- Open **Create Account** to create an on-site attendee profile
+- Open **Create Account** to create an attendee profile
 - Sign in to an existing account on the same device
-- Optionally choose **Connect School SSO** to link Canvas credentials (mocked)
-- Use **Sync Canvas Profile** to refresh Canvas-backed identity fields (mocked)
-
-> Current mode: frontend-first implementation with localStorage persistence and mocked Canvas linking/sync behavior.
+- Optionally choose **Connect School SSO** to link Canvas credentials
+- Use **Sync Canvas Profile** to refresh Canvas profile and calendar data
 
 ## 📄 License
 
