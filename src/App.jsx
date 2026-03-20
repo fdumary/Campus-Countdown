@@ -1,4 +1,25 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { QRCodeSVG } from "qrcode.react";
+
+function createQrCodeValue(event) {
+  const slug = event.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 18) || "event";
+  return `EVT-${event.id}-${slug}`.toUpperCase();
+}
+
+function normalizeEvent(event) {
+  return {
+    ...event,
+    qrCodeValue: event.qrCodeValue || createQrCodeValue(event),
+    isRegistered: Boolean(event.isRegistered),
+    isAttended: Boolean(event.isAttended),
+    registeredAt: event.registeredAt || null,
+    attendedAt: event.attendedAt || null,
+  };
+}
 
 const INITIAL_EVENTS = [
   { id: 1, title: "Midterm Exam - Data Structures", date: "2026-03-20T09:00:00", category: "academic", pinned: false },
@@ -8,7 +29,7 @@ const INITIAL_EVENTS = [
   { id: 5, title: "Campus Music Festival", date: "2026-04-12T18:00:00", category: "social", pinned: false },
   { id: 6, title: "Final Exam - Algorithms", date: "2026-04-28T14:00:00", category: "academic", pinned: false },
   { id: 7, title: "Club Hackathon", date: "2026-03-29T08:00:00", category: "social", pinned: false },
-];
+].map(normalizeEvent);
 
 function getTimeLeft(dateStr) {
   const diff = new Date(dateStr) - new Date();
@@ -48,7 +69,7 @@ function CountdownUnit({ value, label, color }) {
   );
 }
 
-function EventCard({ event, onDelete, onPin }) {
+function EventCard({ event, onDelete, onPin, onShowQr }) {
   const [time, setTime] = useState(getTimeLeft(event.date));
   useEffect(() => {
     const iv = setInterval(() => setTime(getTimeLeft(event.date)), 1000);
@@ -78,11 +99,28 @@ function EventCard({ event, onDelete, onPin }) {
             <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: s.badge, color: s.badgeText, padding: "2px 8px", borderRadius: 99 }}>
               {isPast ? "Passed" : urgency}
             </span>
+            {event.isRegistered && (
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: "#34d399", color: "#052e16", padding: "2px 8px", borderRadius: 99 }}>
+                Registered
+              </span>
+            )}
+            {event.isAttended && (
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: "#60a5fa", color: "#082f49", padding: "2px 8px", borderRadius: 99 }}>
+                Attended
+              </span>
+            )}
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{event.title}</h3>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "4px 0 0" }}>{new Date(event.date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={() => onShowQr(event.id)}
+            style={{ background: "rgba(255,255,255,0.2)", border: "none", color: s.text, borderRadius: 8, padding: "0 10px", height: 32, cursor: "pointer", fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}
+            title="Show Ticket"
+          >
+            Show Ticket
+          </button>
           <button onClick={() => onPin(event.id)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: s.text, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14 }} title="Pin">
             {event.pinned ? "★" : "☆"}
           </button>
@@ -107,11 +145,16 @@ function EventCard({ event, onDelete, onPin }) {
 }
 
 export default function App() {
-  // const [events, setEvents] = useState(INITIAL_EVENTS);
-
   const [events, setEvents] = useState(() => {
-  const saved = localStorage.getItem("countdown-events");
-  return saved ? JSON.parse(saved) : INITIAL_EVENTS;
+    const saved = localStorage.getItem("countdown-events");
+    if (!saved) return INITIAL_EVENTS;
+    try {
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return INITIAL_EVENTS;
+      return parsed.map(normalizeEvent);
+    } catch {
+      return INITIAL_EVENTS;
+    }
   });
 
   useEffect(() => {
@@ -123,6 +166,9 @@ export default function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState("");
   const [newCat, setNewCat] = useState("academic");
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [activeQrEventId, setActiveQrEventId] = useState(null);
+  const [copyMessage, setCopyMessage] = useState("");
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -132,12 +178,36 @@ export default function App() {
 
   const addEvent = useCallback(() => {
     if (!newTitle.trim() || !newDate) return;
-    setEvents(ev => [...ev, { id: Date.now(), title: newTitle.trim(), date: newDate, category: newCat, pinned: false }]);
+    setEvents(ev => [...ev, normalizeEvent({ id: Date.now(), title: newTitle.trim(), date: newDate, category: newCat, pinned: false })]);
     setNewTitle(""); setNewDate(""); setNewCat("academic"); setShowAdd(false);
   }, [newTitle, newDate, newCat]);
 
   const deleteEvent = useCallback((id) => setEvents(ev => ev.filter(e => e.id !== id)), []);
   const pinEvent = useCallback((id) => setEvents(ev => ev.map(e => e.id === id ? { ...e, pinned: !e.pinned } : e)), []);
+
+  const closeQrModal = useCallback(() => {
+    setShowQrModal(false);
+    setActiveQrEventId(null);
+    setCopyMessage("");
+  }, []);
+
+  const openQrModal = useCallback((eventId) => {
+    setActiveQrEventId(eventId);
+    setCopyMessage("");
+    setShowQrModal(true);
+  }, []);
+
+  const activeQrEvent = useMemo(() => events.find(e => e.id === activeQrEventId) || null, [events, activeQrEventId]);
+
+  const copyQrCode = useCallback(async () => {
+    if (!activeQrEvent?.qrCodeValue) return;
+    try {
+      await navigator.clipboard.writeText(activeQrEvent.qrCodeValue);
+      setCopyMessage("Ticket code copied");
+    } catch {
+      setCopyMessage("Ticket code copy failed");
+    }
+  }, [activeQrEvent]);
 
   const filtered = events
     .filter(e => filter === "all" || e.category === filter)
@@ -231,8 +301,67 @@ export default function App() {
       {/* Event List */}
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 24px 40px", display: "flex", flexDirection: "column", gap: 12 }}>
         {filtered.length === 0 && <p style={{ textAlign: "center", color: "#475569", padding: 40 }}>No events found. Add one above!</p>}
-        {filtered.map(e => <EventCard key={e.id} event={e} onDelete={deleteEvent} onPin={pinEvent} />)}
+        {filtered.map(e => <EventCard key={e.id} event={e} onDelete={deleteEvent} onPin={pinEvent} onShowQr={openQrModal} />)}
       </div>
+
+      {showQrModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 30, background: "rgba(2,6,23,0.82)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ width: "100%", maxWidth: 480, background: "linear-gradient(145deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 20, boxShadow: "0 24px 50px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 2, color: "#818cf8", marginBottom: 6 }}>Attendee Ticket</div>
+                <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3 }}>{activeQrEvent?.title || "Selected Event"}</h3>
+              </div>
+              <button onClick={closeQrModal} style={{ background: "rgba(148,163,184,0.2)", border: "none", color: "#e2e8f0", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14, borderRadius: 12, border: "1px solid rgba(148,163,184,0.25)", background: "#020617", padding: 24, display: "flex", justifyContent: "center" }}>
+              {activeQrEvent && (
+                <QRCodeSVG
+                  value={activeQrEvent.qrCodeValue}
+                  size={240}
+                  bgColor="#ffffff"
+                  fgColor="#0f172a"
+                  level="M"
+                  includeMargin
+                />
+              )}
+            </div>
+
+            <div style={{ marginTop: 14, display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                value={activeQrEvent?.qrCodeValue || ""}
+                readOnly
+                style={{ ...inputStyle, flex: 1, fontWeight: 700, letterSpacing: 0.8 }}
+              />
+              <button
+                onClick={copyQrCode}
+                style={{ padding: "10px 14px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                Copy Ticket Code
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, minHeight: 22 }}>
+              {copyMessage && (
+                <span style={{
+                  display: "inline-block",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  borderRadius: 99,
+                  background: copyMessage === "Ticket code copied" ? "#34d399" : "#fca5a5",
+                  color: copyMessage === "Ticket code copied" ? "#052e16" : "#7f1d1d",
+                }}>
+                  {copyMessage}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
