@@ -1,5 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { Html5Qrcode } from "html5-qrcode";
+import {
+  getActiveAccount,
+  registerLocalAccount,
+  signInLocalAccount,
+  signOutLocalAccount,
+  updateAccountRecord,
+} from "./services/auth";
+import { connectCanvasSSO, syncCanvasProfile } from "./services/canvasAuth";
 
 function createQrCodeValue(event) {
   const slug = event.title
@@ -18,6 +27,41 @@ function normalizeEvent(event) {
     isAttended: Boolean(event.isAttended),
     registeredAt: event.registeredAt || null,
     attendedAt: event.attendedAt || null,
+  };
+}
+
+function parseEventFromQrPayload(rawPayload) {
+  const raw = String(rawPayload || "").trim();
+  if (!raw) {
+    throw new Error("QR payload is empty.");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Unsupported QR format. Use event QR JSON payload.");
+  }
+
+  const title = String(parsed.title || parsed.eventTitle || "").trim();
+  const date = String(parsed.date || parsed.eventDate || "").trim();
+  const categoryRaw = String(parsed.category || "academic").toLowerCase();
+  const category = categoryRaw === "social" ? "social" : "academic";
+  const ticketCode = String(parsed.ticketCode || parsed.qrCodeValue || "").trim();
+
+  if (!title) {
+    throw new Error("QR event payload is missing a title.");
+  }
+
+  if (!date || Number.isNaN(new Date(date).getTime())) {
+    throw new Error("QR event payload has an invalid date.");
+  }
+
+  return {
+    title,
+    date,
+    category,
+    qrCodeValue: ticketCode || null,
   };
 }
 
@@ -166,9 +210,26 @@ export default function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState("");
   const [newCat, setNewCat] = useState("academic");
+  const [showImportQrModal, setShowImportQrModal] = useState(false);
+  const [importPayload, setImportPayload] = useState("");
+  const [importMessage, setImportMessage] = useState({ type: "idle", text: "" });
+  const [importCameraState, setImportCameraState] = useState("idle");
+  const importScannerRef = useRef(null);
+  const importScanLockRef = useRef(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [activeQrEventId, setActiveQrEventId] = useState(null);
   const [copyMessage, setCopyMessage] = useState("");
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [authMode, setAuthMode] = useState("create");
+  const [fullName, setFullName] = useState("");
+  const [schoolEmail, setSchoolEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [activeAccount, setActiveAccount] = useState(() => getActiveAccount());
+  const [accountMessage, setAccountMessage] = useState({ type: "idle", text: "" });
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [ssoBusy, setSsoBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -185,6 +246,49 @@ export default function App() {
   const deleteEvent = useCallback((id) => setEvents(ev => ev.filter(e => e.id !== id)), []);
   const pinEvent = useCallback((id) => setEvents(ev => ev.map(e => e.id === id ? { ...e, pinned: !e.pinned } : e)), []);
 
+  const closeImportQrModal = useCallback(() => {
+    setShowImportQrModal(false);
+    setImportPayload("");
+    setImportMessage({ type: "idle", text: "" });
+    setImportCameraState("idle");
+  }, []);
+
+  const openImportQrModal = useCallback(() => {
+    setImportPayload("");
+    setImportMessage({ type: "idle", text: "" });
+    setImportCameraState("loading");
+    setShowImportQrModal(true);
+  }, []);
+
+  const createEventFromQr = useCallback((rawPayload) => {
+    const parsed = parseEventFromQrPayload(rawPayload);
+    setEvents((current) => {
+      const nextEvent = normalizeEvent({
+        id: Date.now(),
+        title: parsed.title,
+        date: parsed.date,
+        category: parsed.category,
+        pinned: false,
+        qrCodeValue: parsed.qrCodeValue || undefined,
+      });
+      return [...current, nextEvent];
+    });
+
+    setImportMessage({ type: "success", text: "Event added from QR payload." });
+    setShowAdd(false);
+    window.setTimeout(() => {
+      closeImportQrModal();
+    }, 900);
+  }, [closeImportQrModal]);
+
+  const importFromPayloadInput = useCallback(() => {
+    try {
+      createEventFromQr(importPayload);
+    } catch (error) {
+      setImportMessage({ type: "error", text: error.message || "Could not import event QR." });
+    }
+  }, [createEventFromQr, importPayload]);
+
   const closeQrModal = useCallback(() => {
     setShowQrModal(false);
     setActiveQrEventId(null);
@@ -199,6 +303,71 @@ export default function App() {
 
   const activeQrEvent = useMemo(() => events.find(e => e.id === activeQrEventId) || null, [events, activeQrEventId]);
 
+  useEffect(() => {
+    if (!showImportQrModal) return undefined;
+
+    let isMounted = true;
+    const scanner = new Html5Qrcode("event-import-qr-reader");
+    importScannerRef.current = scanner;
+
+    const startScanner = async () => {
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!isMounted) return;
+
+        if (!cameras.length) {
+          throw new Error("No camera available.");
+        }
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          (decodedText) => {
+            if (importScanLockRef.current) return;
+            importScanLockRef.current = true;
+            try {
+              createEventFromQr(decodedText);
+            } catch (error) {
+              setImportMessage({ type: "error", text: error.message || "Could not import event QR." });
+            } finally {
+              window.setTimeout(() => {
+                importScanLockRef.current = false;
+              }, 1000);
+            }
+          },
+          () => {}
+        );
+
+        if (isMounted) {
+          setImportCameraState("ready");
+        }
+      } catch {
+        if (isMounted) {
+          setImportCameraState("error");
+          setImportMessage({ type: "error", text: "Camera import unavailable. Paste QR payload below." });
+        }
+      }
+    };
+
+    startScanner();
+
+    return () => {
+      isMounted = false;
+      importScanLockRef.current = false;
+
+      const liveScanner = importScannerRef.current;
+      importScannerRef.current = null;
+      if (!liveScanner) return;
+
+      liveScanner
+        .stop()
+        .catch(() => {})
+        .finally(() => {
+          liveScanner.clear().catch(() => {});
+        });
+    };
+  }, [showImportQrModal, createEventFromQr]);
+
   const copyQrCode = useCallback(async () => {
     if (!activeQrEvent?.qrCodeValue) return;
     try {
@@ -208,6 +377,123 @@ export default function App() {
       setCopyMessage("Ticket code copy failed");
     }
   }, [activeQrEvent]);
+
+  const resetAccountForm = useCallback(() => {
+    setFullName("");
+    setSchoolEmail("");
+    setPassword("");
+    setConfirmPassword("");
+  }, []);
+
+  const openAccountModal = useCallback((mode = "create") => {
+    setAuthMode(mode);
+    setAccountMessage({ type: "idle", text: "" });
+    setShowAccountModal(true);
+  }, []);
+
+  const closeAccountModal = useCallback(() => {
+    setShowAccountModal(false);
+    setAccountMessage({ type: "idle", text: "" });
+    resetAccountForm();
+  }, [resetAccountForm]);
+
+  const submitAccountForm = useCallback(async () => {
+    const nameValue = fullName.trim();
+    const emailValue = schoolEmail.trim().toLowerCase();
+
+    if (authMode === "create" && !nameValue) {
+      setAccountMessage({ type: "error", text: "Full name is required." });
+      return;
+    }
+
+    if (!isValidSchoolEmail(emailValue)) {
+      setAccountMessage({ type: "error", text: "Enter a valid school email." });
+      return;
+    }
+
+    if (!password || password.length < 6) {
+      setAccountMessage({ type: "error", text: "Password must be at least 6 characters." });
+      return;
+    }
+
+    if (authMode === "create" && password !== confirmPassword) {
+      setAccountMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+
+    setAccountBusy(true);
+    setAccountMessage({ type: "idle", text: "" });
+
+    try {
+      const account = authMode === "create"
+        ? await registerLocalAccount({ fullName: nameValue, schoolEmail: emailValue, password })
+        : await signInLocalAccount({ schoolEmail: emailValue, password });
+
+      setActiveAccount(account);
+      setAccountMessage({
+        type: "success",
+        text: authMode === "create" ? "Account created. You are signed in." : "Signed in successfully.",
+      });
+
+      if (authMode === "create") {
+        resetAccountForm();
+      }
+    } catch (error) {
+      setAccountMessage({ type: "error", text: error.message || "Could not complete this action." });
+    } finally {
+      setAccountBusy(false);
+    }
+  }, [authMode, fullName, schoolEmail, password, confirmPassword, resetAccountForm]);
+
+  const signOut = useCallback(() => {
+    signOutLocalAccount();
+    setActiveAccount(null);
+    setAccountMessage({ type: "idle", text: "" });
+    setShowAccountModal(false);
+    resetAccountForm();
+  }, [resetAccountForm]);
+
+  const connectSso = useCallback(async () => {
+    if (!activeAccount) {
+      setAccountMessage({ type: "error", text: "Create or sign in to an account first." });
+      return;
+    }
+
+    setSsoBusy(true);
+    setAccountMessage({ type: "idle", text: "" });
+
+    try {
+      const linkPatch = await connectCanvasSSO(activeAccount);
+      const updated = updateAccountRecord(activeAccount.id, (current) => ({ ...current, ...linkPatch }));
+      setActiveAccount(updated);
+      setAccountMessage({ type: "success", text: "Canvas SSO linked (mock mode)." });
+    } catch (error) {
+      setAccountMessage({ type: "error", text: error.message || "Could not link Canvas SSO." });
+    } finally {
+      setSsoBusy(false);
+    }
+  }, [activeAccount]);
+
+  const syncCanvas = useCallback(async () => {
+    if (!activeAccount) {
+      setAccountMessage({ type: "error", text: "Create or sign in to an account first." });
+      return;
+    }
+
+    setSyncBusy(true);
+    setAccountMessage({ type: "idle", text: "" });
+
+    try {
+      const syncPatch = await syncCanvasProfile(activeAccount);
+      const updated = updateAccountRecord(activeAccount.id, (current) => ({ ...current, ...syncPatch }));
+      setActiveAccount(updated);
+      setAccountMessage({ type: "success", text: "Canvas profile synced." });
+    } catch (error) {
+      setAccountMessage({ type: "error", text: error.message || "Could not sync Canvas profile." });
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [activeAccount]);
 
   const filtered = events
     .filter(e => filter === "all" || e.category === filter)
@@ -244,10 +530,33 @@ export default function App() {
 
       {/* Header */}
       <div style={{ padding: "32px 24px 24px", maxWidth: 640, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #60a5fa, #a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          Campus Countdown
-        </h1>
-        <p style={{ color: "#64748b", margin: "4px 0 0", fontSize: 14 }}>Live Urgency Awareness</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #60a5fa, #a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              Campus Countdown
+            </h1>
+          </div>
+          <button onClick={() => openAccountModal(activeAccount ? "signin" : "create")} style={btnStyle(false)}>
+            {activeAccount ? "Account" : "Create Account"}
+          </button>
+        </div>
+        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {activeAccount && (
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, background: "#34d399", color: "#052e16", padding: "3px 9px", borderRadius: 99 }}>
+              Signed In
+            </span>
+          )}
+          {activeAccount?.ssoLinked && (
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, background: "#93c5fd", color: "#082f49", padding: "3px 9px", borderRadius: 99 }}>
+              Canvas Linked
+            </span>
+          )}
+          {activeAccount && (
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
+              {activeAccount.fullName} • {activeAccount.schoolEmail}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Next Up Banner */}
@@ -273,10 +582,96 @@ export default function App() {
             <button key={val} onClick={() => setFilter(val)} style={btnStyle(filter === val)}>{label}</button>
           ))}
         </div>
-        <button onClick={() => setShowAdd(!showAdd)} style={{ ...btnStyle(false), background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" }}>
-          {showAdd ? "Cancel" : "+ Add Event"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {activeAccount && (
+            <button onClick={signOut} style={btnStyle(false)}>
+              Sign Out
+            </button>
+          )}
+          <button onClick={() => setShowAdd(!showAdd)} style={{ ...btnStyle(false), background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff" }}>
+            {showAdd ? "Cancel" : "+ Add Event"}
+          </button>
+        </div>
       </div>
+
+      {showAccountModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 35, background: "rgba(2,6,23,0.82)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ width: "100%", maxWidth: 520, background: "linear-gradient(145deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 20, boxShadow: "0 24px 50px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div>
+              </div>
+              <button onClick={closeAccountModal} style={{ background: "rgba(148,163,184,0.2)", border: "none", color: "#e2e8f0", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
+              <button onClick={() => setAuthMode("create")} style={{ ...btnStyle(authMode === "create"), flex: 1 }}>
+                Create Account
+              </button>
+              <button onClick={() => setAuthMode("signin")} style={{ ...btnStyle(authMode === "signin"), flex: 1 }}>
+                Sign In
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              {authMode === "create" && (
+                <input placeholder="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
+              )}
+              <input placeholder="School email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} style={inputStyle} />
+              <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+              {authMode === "create" && (
+                <input placeholder="Confirm password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} style={inputStyle} />
+              )}
+              <button
+                onClick={submitAccountForm}
+                disabled={accountBusy}
+                style={{ padding: "12px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: accountBusy ? "not-allowed" : "pointer", opacity: accountBusy ? 0.7 : 1 }}
+              >
+                {accountBusy ? "Please wait..." : authMode === "create" ? "Create Account" : "Sign In"}
+              </button>
+            </div>
+
+            {activeAccount && (
+              <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid rgba(148,163,184,0.22)", background: "rgba(15,23,42,0.55)" }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button onClick={connectSso} disabled={ssoBusy || activeAccount.ssoLinked} style={{ ...btnStyle(false), background: activeAccount.ssoLinked ? "rgba(52,211,153,0.2)" : "rgba(147,197,253,0.2)", color: activeAccount.ssoLinked ? "#34d399" : "#93c5fd", cursor: ssoBusy || activeAccount.ssoLinked ? "not-allowed" : "pointer", opacity: ssoBusy ? 0.75 : 1 }}>
+                    {activeAccount.ssoLinked ? "Canvas Connected" : ssoBusy ? "Connecting..." : "Connect School SSO"}
+                  </button>
+                  <button onClick={syncCanvas} disabled={syncBusy} style={{ ...btnStyle(false), cursor: syncBusy ? "not-allowed" : "pointer", opacity: syncBusy ? 0.75 : 1 }}>
+                    {syncBusy ? "Syncing..." : "Sync Canvas Profile"}
+                  </button>
+                </div>
+
+                {activeAccount.canvasProfile && (
+                  <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: "rgba(148,163,184,0.12)", fontSize: 12, color: "#cbd5e1", lineHeight: 1.5 }}>
+                    <div><strong>Name:</strong> {activeAccount.canvasProfile.displayName}</div>
+                    <div><strong>Email:</strong> {activeAccount.canvasProfile.primaryEmail}</div>
+                    <div><strong>Canvas ID:</strong> {activeAccount.canvasProfile.canvasUserId}</div>
+                    <div><strong>Last synced:</strong> {activeAccount.canvasLastSyncedAt ? new Date(activeAccount.canvasLastSyncedAt).toLocaleString() : "Never"}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop: 10, minHeight: 22 }}>
+              {accountMessage.type !== "idle" && (
+                <span style={{
+                  display: "inline-block",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  borderRadius: 99,
+                  background: accountMessage.type === "success" ? "#34d399" : "#fca5a5",
+                  color: accountMessage.type === "success" ? "#052e16" : "#7f1d1d",
+                }}>
+                  {accountMessage.text}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Form */}
       {showAdd && (
@@ -291,9 +686,53 @@ export default function App() {
                 </button>
               ))}
             </div>
+            <button onClick={openImportQrModal} style={{ ...btnStyle(false), background: "rgba(147,197,253,0.18)", color: "#bfdbfe", border: "1px solid rgba(147,197,253,0.35)" }}>
+              Scan QR Code
+            </button>
             <button onClick={addEvent} style={{ padding: "12px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
               Add Deadline
             </button>
+          </div>
+        </div>
+      )}
+
+      {showImportQrModal && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 34, background: "rgba(2,6,23,0.82)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ width: "100%", maxWidth: 500, background: "linear-gradient(145deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 20, boxShadow: "0 24px 50px rgba(0,0,0,0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3 }}>Scan QR Code to Import Event</h3>
+              </div>
+              <button onClick={closeImportQrModal} style={{ background: "rgba(148,163,184,0.2)", border: "none", color: "#e2e8f0", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14, borderRadius: 12, overflow: "hidden", border: "1px solid rgba(148,163,184,0.25)", background: "#020617" }}>
+              <div id="event-import-qr-reader" style={{ width: "100%", minHeight: 250 }} />
+            </div>
+
+            <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94a3b8" }}>
+              {importCameraState === "loading" && "Requesting camera access..."}
+              {importCameraState === "ready" && "Camera is live. Hold event QR code in frame."}
+              {importCameraState === "error" && "Camera unavailable on this device."}
+            </p>
+
+            <div style={{ marginTop: 10, minHeight: 22 }}>
+              {importMessage.type !== "idle" && (
+                <span style={{
+                  display: "inline-block",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "4px 10px",
+                  borderRadius: 99,
+                  background: importMessage.type === "success" ? "#34d399" : "#fca5a5",
+                  color: importMessage.type === "success" ? "#052e16" : "#7f1d1d",
+                }}>
+                  {importMessage.text}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -309,7 +748,7 @@ export default function App() {
           <div style={{ width: "100%", maxWidth: 480, background: "linear-gradient(145deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 16, padding: 20, boxShadow: "0 24px 50px rgba(0,0,0,0.5)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div>
-                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 2, color: "#818cf8", marginBottom: 6 }}>Attendee Ticket</div>
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 2, color: "#818cf8", marginBottom: 6 }}>Ticket</div>
                 <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3 }}>{activeQrEvent?.title || "Selected Event"}</h3>
               </div>
               <button onClick={closeQrModal} style={{ background: "rgba(148,163,184,0.2)", border: "none", color: "#e2e8f0", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
@@ -364,4 +803,8 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function isValidSchoolEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
