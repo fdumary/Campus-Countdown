@@ -1,3 +1,9 @@
+import { getTimeLeft, getUrgency } from "./utils/countdown";
+import { isValidSchoolEmail } from "./utils/validation";
+import { createQrCodeValue, normalizeEvent, parseEventFromQrPayload, INITIAL_EVENTS } from "./utils/events";
+import { urgencyStyles, categoryColors } from "./constants/styles";
+import CountdownUnit from "./components/CountdownUnit";
+import EventCard from "./components/EventCard";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
@@ -10,184 +16,6 @@ import {
   updateAccountRecord,
 } from "./services/auth";
 import { connectCanvasSSO, syncCanvasProfile } from "./services/canvasAuth";
-
-function createQrCodeValue(event) {
-  const slug = event.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 18) || "event";
-  return `EVT-${event.id}-${slug}`.toUpperCase();
-}
-
-function normalizeEvent(event) {
-  return {
-    ...event,
-    qrCodeValue: event.qrCodeValue || createQrCodeValue(event),
-    isRegistered: Boolean(event.isRegistered),
-    isAttended: Boolean(event.isAttended),
-    registeredAt: event.registeredAt || null,
-    attendedAt: event.attendedAt || null,
-  };
-}
-
-function parseEventFromQrPayload(rawPayload) {
-  const raw = String(rawPayload || "").trim();
-  if (!raw) {
-    throw new Error("QR payload is empty.");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Unsupported QR format. Use event QR JSON payload.");
-  }
-
-  const title = String(parsed.title || parsed.eventTitle || "").trim();
-  const date = String(parsed.date || parsed.eventDate || "").trim();
-  const categoryRaw = String(parsed.category || "academic").toLowerCase();
-  const category = categoryRaw === "social" ? "social" : "academic";
-  const ticketCode = String(parsed.ticketCode || parsed.qrCodeValue || "").trim();
-
-  if (!title) {
-    throw new Error("QR event payload is missing a title.");
-  }
-
-  if (!date || Number.isNaN(new Date(date).getTime())) {
-    throw new Error("QR event payload has an invalid date.");
-  }
-
-  return {
-    title,
-    date,
-    category,
-    qrCodeValue: ticketCode || null,
-  };
-}
-
-const INITIAL_EVENTS = [
-  { id: 1, title: "Midterm Exam - Data Structures", date: "2026-03-20T09:00:00", category: "academic", pinned: false },
-  { id: 2, title: "Software Engineering Project Due", date: "2026-03-25T23:59:00", category: "academic", pinned: false },
-  { id: 3, title: "Spring Break Starts", date: "2026-04-04T17:00:00", category: "social", pinned: false },
-  { id: 4, title: "Career Fair", date: "2026-03-15T10:00:00", category: "academic", pinned: false },
-  { id: 5, title: "Campus Music Festival", date: "2026-04-12T18:00:00", category: "social", pinned: false },
-  { id: 6, title: "Final Exam - Algorithms", date: "2026-04-28T14:00:00", category: "academic", pinned: false },
-  { id: 7, title: "Club Hackathon", date: "2026-03-29T08:00:00", category: "social", pinned: false },
-].map(normalizeEvent);
-
-function getTimeLeft(dateStr) {
-  const diff = new Date(dateStr) - new Date();
-  if (diff <= 0) return null;
-  const d = Math.floor(diff / 86400000);
-  const h = Math.floor((diff % 86400000) / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  return { total: diff, d, h, m, s };
-}
-
-function getUrgency(diff) {
-  if (!diff) return "past";
-  const hrs = diff.total / 3600000;
-  if (hrs < 24) return "critical";
-  if (hrs < 72) return "urgent";
-  if (hrs < 168) return "soon";
-  return "relaxed";
-}
-
-const urgencyStyles = {
-  critical: { bg: "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)", text: "#fff", badge: "#fca5a5", badgeText: "#7f1d1d", pulse: true },
-  urgent: { bg: "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)", text: "#fff", badge: "#fde68a", badgeText: "#78350f", pulse: false },
-  soon: { bg: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)", text: "#fff", badge: "#bfdbfe", badgeText: "#1e3a5f", pulse: false },
-  relaxed: { bg: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)", text: "#e2e8f0", badge: "#334155", badgeText: "#cbd5e1", pulse: false },
-  past: { bg: "linear-gradient(135deg, #374151 0%, #1f2937 100%)", text: "#9ca3af", badge: "#4b5563", badgeText: "#9ca3af", pulse: false },
-};
-
-const categoryColors = { academic: "#f87171", social: "#34d399" };
-
-function CountdownUnit({ value, label, color }) {
-  return (
-    <div style={{ textAlign: "center", minWidth: 48 }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{String(value).padStart(2, "0")}</div>
-      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, opacity: 0.7, color, marginTop: 2 }}>{label}</div>
-    </div>
-  );
-}
-
-function EventCard({ event, onDelete, onPin, onShowQr }) {
-  const [time, setTime] = useState(getTimeLeft(event.date));
-  useEffect(() => {
-    const iv = setInterval(() => setTime(getTimeLeft(event.date)), 1000);
-    return () => clearInterval(iv);
-  }, [event.date]);
-
-  const urgency = getUrgency(time);
-  const s = urgencyStyles[urgency];
-  const isPast = urgency === "past";
-
-  return (
-    <div style={{
-      background: s.bg, borderRadius: 16, padding: "20px 24px", color: s.text,
-      position: "relative", overflow: "hidden", opacity: isPast ? 0.5 : 1,
-      animation: s.pulse ? "pulse 2s infinite" : "none",
-      transition: "transform 0.2s, box-shadow 0.2s",
-    }}
-      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 30px rgba(0,0,0,0.3)"; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: categoryColors[event.category], color: "#000", padding: "2px 8px", borderRadius: 99 }}>
-              {event.category}
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: s.badge, color: s.badgeText, padding: "2px 8px", borderRadius: 99 }}>
-              {isPast ? "Passed" : urgency}
-            </span>
-            {event.isRegistered && (
-              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: "#34d399", color: "#052e16", padding: "2px 8px", borderRadius: 99 }}>
-                Registered
-              </span>
-            )}
-            {event.isAttended && (
-              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.5, background: "#60a5fa", color: "#082f49", padding: "2px 8px", borderRadius: 99 }}>
-                Attended
-              </span>
-            )}
-          </div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{event.title}</h3>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "4px 0 0" }}>{new Date(event.date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button
-            onClick={() => onShowQr(event.id)}
-            style={{ background: "rgba(255,255,255,0.2)", border: "none", color: s.text, borderRadius: 8, padding: "0 10px", height: 32, cursor: "pointer", fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}
-            title="Show Ticket"
-          >
-            Show Ticket
-          </button>
-          <button onClick={() => onPin(event.id)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: s.text, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14 }} title="Pin">
-            {event.pinned ? "★" : "☆"}
-          </button>
-          <button onClick={() => onDelete(event.id)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: s.text, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14 }} title="Delete">
-            ✕
-          </button>
-        </div>
-      </div>
-      {!isPast && time && (
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-start", marginTop: 8 }}>
-          <CountdownUnit value={time.d} label="Days" color={s.text} />
-          <div style={{ fontSize: 24, fontWeight: 300, color: s.text, opacity: 0.4, alignSelf: "flex-start", lineHeight: "32px" }}>:</div>
-          <CountdownUnit value={time.h} label="Hrs" color={s.text} />
-          <div style={{ fontSize: 24, fontWeight: 300, color: s.text, opacity: 0.4, alignSelf: "flex-start", lineHeight: "32px" }}>:</div>
-          <CountdownUnit value={time.m} label="Min" color={s.text} />
-          <div style={{ fontSize: 24, fontWeight: 300, color: s.text, opacity: 0.4, alignSelf: "flex-start", lineHeight: "32px" }}>:</div>
-          <CountdownUnit value={time.s} label="Sec" color={s.text} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function App() {
   const [events, setEvents] = useState(() => {
@@ -807,8 +635,4 @@ export default function App() {
       )}
     </div>
   );
-}
-
-function isValidSchoolEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
