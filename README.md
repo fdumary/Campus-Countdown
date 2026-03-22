@@ -21,6 +21,10 @@ Built for **CEN 5035-042 Software Engineering**.
 - **Filtered Event Feed** — Toggle between All, Academic, and Social events
 - **Custom Deadlines** — Add your own events with title, date/time, and category
 - **Pin & Delete** — Star important events to pin them to the top
+- **Attendee Ticket** — Generate and display QR code tickets that are scanned at check-in
+- **On-Site Account Creation** — Students can create a local attendee account directly at the event
+- **Optional School SSO Link** — Students can optionally connect their school SSO account
+- **Canvas Profile Sync (Mock)** — Canvas profile details sync through a backend-ready frontend contract
 - **Local Storage Persistence** — Custom events are saved across browser sessions
 - **Next Up Banner** — Highlights the nearest upcoming deadline at the top
 
@@ -84,6 +88,20 @@ Traditional calendars show dates — this app shows **time remaining**. By visua
 - **Plan ahead** by seeing exactly how much time is left
 - **Reduce stress** by staying aware of upcoming deadlines
 - **Balance** academic responsibilities with social events
+
+## 📱 Ticket QR Flow
+
+- Select an event card and press **Show Ticket**
+- A unique ticket QR code is rendered in a modal for attendees to open on their phone
+- Event organizers or volunteers can scan the attendee ticket at check-in
+- The ticket code can also be copied and shared directly
+
+## 👤 Account + SSO Flow
+
+- Open **Create Account** to create an attendee profile
+- Sign in to an existing account on the same device
+- Optionally choose **Connect School SSO** to link Canvas credentials
+- Use **Sync Canvas Profile** to refresh Canvas profile and calendar data
 
 ## 📄 License
 
