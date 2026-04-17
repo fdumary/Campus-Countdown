@@ -60,10 +60,7 @@ export async function registerLocalAccount({ fullName, schoolEmail, password }) 
     schoolEmail: email,
     password,
     createdAt: new Date().toISOString(),
-    ssoLinked: false,
-    ssoProvider: null,
-    canvasProfile: null,
-    canvasLastSyncedAt: null,
+    googleCalendarLinked: false,
   };
 
   const updated = [...accounts, next];
