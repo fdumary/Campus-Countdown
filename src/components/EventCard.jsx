@@ -17,7 +17,7 @@ export default function EventCard({ event, onDelete, onPin, onShowQr, isOrganize
   return (
     <div style={{
       background: s.bg, borderRadius: 16, padding: "20px 24px", color: s.text,
-      position: "relative", overflow: "hidden", opacity: isPast ? 0.5 : 1,
+      position: "relative", overflow: "hidden", opacity: (isPast && !isOrganizer) ? 0.5 : 1,
       animation: s.pulse ? "pulse 2s infinite" : "none",
       transition: "transform 0.2s, box-shadow 0.2s",
     }}
@@ -77,6 +77,17 @@ export default function EventCard({ event, onDelete, onPin, onShowQr, isOrganize
       {event.attendees && typeof event.attendees.length === 'number' && (
         <div style={{ position: 'absolute', right: 12, bottom: 12, fontSize: 12, color: s.text, opacity: 0.9 }}>
           Attendees: <strong style={{ marginLeft: 6 }}>{(event.attendees || []).length}</strong>
+        </div>
+      )}
+
+      {isOrganizer && event.attendees && event.attendees.length > 0 && (
+        <div style={{ marginTop: 12, background: 'rgba(255,255,255,0.04)', padding: 8, borderRadius: 8 }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Attendees</div>
+          {(event.attendees || []).slice().reverse().map(a => (
+            <div key={a.id} style={{ fontSize: 12, color: s.text, opacity: 0.9, marginBottom: 4 }}>
+              {a.userFullName ? `${a.userFullName} (${a.userEmail || 'no-email'})` : `${a.ticketCode}`}
+            </div>
+          ))}
         </div>
       )}
 

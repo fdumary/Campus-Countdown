@@ -179,8 +179,7 @@ export default function App() {
       {showQrModal && (
         <QRTicketModal
           activeQrEvent={activeQrEvent}
-          copyMessage={copyMessage}
-          copyQrCode={copyQrCode}
+          activeAccount={activeAccount}
           closeQrModal={closeQrModal}
         />
       )}

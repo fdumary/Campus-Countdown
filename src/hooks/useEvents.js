@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
-import { normalizeEvent, parseEventFromQrPayload, INITIAL_EVENTS } from "../utils/events";
+import Event from "../models/Event";
 import { getTimeLeft } from "../utils/countdown";
 import { updateAccountRecord } from "../services/auth";
 
@@ -11,7 +11,7 @@ export function useEvents(activeAccount) {
     if (!saved) return [];
     try {
       if (!Array.isArray(saved)) return [];
-      return saved.map(normalizeEvent);
+      return saved.map(Event.normalize);
     } catch {
       return [];
     }
@@ -28,7 +28,7 @@ export function useEvents(activeAccount) {
       setEvents([]);
       return;
     }
-    setEvents(saved.map(normalizeEvent));
+    setEvents(saved.map(Event.normalize));
   }, [activeAccount]);
 
   // Persist events back to the user's account when they change
@@ -65,7 +65,7 @@ export function useEvents(activeAccount) {
 
   const addEvent = useCallback(() => {
     if (!newTitle.trim() || !newDate) return;
-    setEvents(ev => [...ev, normalizeEvent({ id: Date.now(), title: newTitle.trim(), date: newDate, category: newCat, pinned: false })]);
+    setEvents(ev => [...ev, Event.normalize({ id: Date.now(), title: newTitle.trim(), date: newDate, category: newCat, pinned: false })]);
     setNewTitle(""); setNewDate(""); setNewCat("academic"); setShowAdd(false);
   }, [newTitle, newDate, newCat]);
 
@@ -95,9 +95,9 @@ export function useEvents(activeAccount) {
   }, []);
 
   const createEventFromQr = useCallback((rawPayload) => {
-    const parsed = parseEventFromQrPayload(rawPayload);
+    const parsed = Event.parseFromQrPayload(rawPayload);
     setEvents((current) => {
-      const nextEvent = normalizeEvent({
+      const nextEvent = Event.normalize({
         id: Date.now(),
         title: parsed.title,
         date: parsed.date,
@@ -114,47 +114,86 @@ export function useEvents(activeAccount) {
   }, [closeImportQrModal]);
 
   const createAttendanceFromQr = useCallback((rawPayload) => {
-    const code = String(rawPayload || '').trim();
-    if (!code) {
+    const raw = String(rawPayload || '').trim();
+    if (!raw) {
       setImportMessage({ type: 'error', text: 'Scanned empty QR.' });
       return;
     }
 
+    // Try to parse structured ticket payload from Campus Countdown
+    let parsed = null;
+    let ticketCode = raw;
+    let user = null;
+    let eventRef = null;
+    try {
+      parsed = JSON.parse(raw);
+      if (parsed && parsed.app && parsed.app !== 'campus-countdown') {
+        setImportMessage({ type: 'error', text: 'Scanned QR is not from Campus Countdown.' });
+        return;
+      }
+
+      if (parsed.type === 'ticket') {
+        ticketCode = String(parsed.ticketCode || parsed.qrCodeValue || '').trim() || ticketCode;
+        user = parsed.user || null;
+        eventRef = parsed.event || null;
+      } else if (parsed.type === 'event') {
+        // If an event QR was scanned in the attendance scanner, treat it as an import
+        createEventFromQr(rawPayload);
+        return;
+      }
+    } catch (err) {
+      // not JSON — treat as legacy plain ticket code
+    }
+
     setEvents((current) => {
-      let found = false;
+      let added = false;
+      let alreadyScanned = false;
+      let matchedEventFound = false;
+
       const next = current.map((ev) => {
-        if (scanningEventId && ev.id === scanningEventId) {
-          // target event - record attendance if not already recorded for this ticket
-          const exists = (ev.attendees || []).some(a => a.ticketCode === code);
+        const matchesByEventRef = eventRef && eventRef.id && Number(eventRef.id) === Number(ev.id);
+        const matchesByScanTarget = scanningEventId && ev.id === scanningEventId;
+        const matchesByCode = (Event.createTicketCode(ev) === ticketCode) || ev.qrCodeValue === ticketCode;
+
+        if (matchesByScanTarget || matchesByEventRef || (!scanningEventId && matchesByCode)) {
+          matchedEventFound = true;
+          const evTicketSlug = Event.createTicketCode(ev);
+          const exists = (ev.attendees || []).some(a => {
+            const codesEqual = a.ticketCode === ticketCode || a.ticketCode === ev.qrCodeValue || a.ticketCode === evTicketSlug;
+            if (!codesEqual) return false;
+            return user ? a.userEmail === (user.email || null) : true;
+          });
           if (!exists) {
-            const attendee = { id: `att-${Date.now()}`, scannedAt: new Date().toISOString(), ticketCode: code };
-            found = true;
+            const attendee = {
+              id: `att-${Date.now()}`,
+              scannedAt: new Date().toISOString(),
+              ticketCode,
+              userFullName: user?.fullName || null,
+              userEmail: user?.email || null,
+            };
+            added = true;
             return { ...ev, attendees: [...(ev.attendees || []), attendee] };
-          }
-        }
-        // fallback: if no scanningEventId provided, match by qrCodeValue
-        if (!scanningEventId && ev.qrCodeValue === code) {
-          const exists = (ev.attendees || []).some(a => a.ticketCode === code);
-          if (!exists) {
-            const attendee = { id: `att-${Date.now()}`, scannedAt: new Date().toISOString(), ticketCode: code };
-            found = true;
-            return { ...ev, attendees: [...(ev.attendees || []), attendee] };
+          } else {
+            alreadyScanned = true;
+            return ev;
           }
         }
         return ev;
       });
 
-      if (!found) {
-        setImportMessage({ type: 'error', text: 'No matching event found for scanned ticket.' });
-      } else {
+      if (added) {
         setImportMessage({ type: 'success', text: 'Attendance recorded.' });
         // auto-close after short delay
         window.setTimeout(() => { closeImportQrModal(); }, 900);
+      } else if (alreadyScanned) {
+        setImportMessage({ type: 'error', text: "Can't scan the same ticket twice — this person is already scanned in." });
+      } else if (!matchedEventFound) {
+        setImportMessage({ type: 'error', text: 'No matching event found for scanned ticket.' });
       }
 
       return next;
     });
-  }, [scanningEventId, closeImportQrModal]);
+  }, [scanningEventId, closeImportQrModal, createEventFromQr]);
 
   const closeQrModal = useCallback(() => {
     setShowQrModal(false);
