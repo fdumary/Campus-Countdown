@@ -3,11 +3,21 @@ import EventCard from "./components/EventCard";
 import AccountModal from "./components/AccountModal";
 import ImportQRModal from "./components/ImportQRModal";
 import QRTicketModal from "./components/QRTicketModal";
-import { useEvents } from "./hooks/useEvents";
 import { useAccount } from "./hooks/useAccount";
 import { useGoogleCalendar } from "./hooks/useGoogleCalendar";
+import AdminPage from "./components/AdminPage";
+import { useEvents } from "./hooks/useEvents";
 
 export default function App() {
+  const {
+    showAccountModal, authMode, setAuthMode,
+    fullName, setFullName, schoolEmail, setSchoolEmail,
+    password, setPassword, confirmPassword, setConfirmPassword,
+    userType, setUserType,
+    activeAccount, hasAccounts, accountMessage, accountBusy,
+    openAccountModal, closeAccountModal, submitAccountForm, signOut,
+  } = useAccount();
+
   const {
     setEvents, filter, setFilter, showAdd, setShowAdd,
     newTitle, setNewTitle, newDate, setNewDate, newCat, setNewCat,
@@ -17,17 +27,42 @@ export default function App() {
     addEvent, deleteEvent, pinEvent,
     openImportQrModal, closeImportQrModal,
     openQrModal, closeQrModal, copyQrCode,
-  } = useEvents();
-
-  const {
-    showAccountModal, authMode, setAuthMode,
-    fullName, setFullName, schoolEmail, setSchoolEmail,
-    password, setPassword, confirmPassword, setConfirmPassword,
-    activeAccount, hasAccounts, accountMessage, accountBusy,
-    openAccountModal, closeAccountModal, submitAccountForm, signOut,
-  } = useAccount();
+    openScannerForEvent,
+  } = useEvents(activeAccount);
 
   const { googleBusy, googleMessage, importFromGoogle } = useGoogleCalendar(setEvents);
+
+  // If not signed in, show a simple sign-in prompt only
+  if (!activeAccount) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0b0f1a", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+        <div style={{ textAlign: "center" }}>
+          <h1 style={{ fontSize: 28, marginBottom: 6 }}>Campus Countdown</h1>
+          <p style={{ color: "#94a3b8", marginBottom: 20 }}>Please sign in to view your events.</p>
+          <button onClick={() => openAccountModal(hasAccounts ? "signin" : "create")} style={{ padding: "10px 14px", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", cursor: "pointer" }}>Sign In / Create Account</button>
+
+          {showAccountModal && (
+            <AccountModal
+              activeAccount={activeAccount} authMode={authMode} setAuthMode={setAuthMode}
+              fullName={fullName} setFullName={setFullName}
+              schoolEmail={schoolEmail} setSchoolEmail={setSchoolEmail}
+              password={password} setPassword={setPassword}
+              confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword}
+              userType={userType} setUserType={setUserType}
+              accountMessage={accountMessage} accountBusy={accountBusy}
+              submitAccountForm={submitAccountForm} closeAccountModal={closeAccountModal}
+              googleBusy={googleBusy} googleMessage={googleMessage} importFromGoogle={importFromGoogle}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // If signed-in user is an admin, show the admin dashboard instead of the main UI.
+  if (activeAccount && activeAccount.userType === 'admin') {
+    return <AdminPage onSignOut={signOut} adminName={activeAccount.fullName} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0f1a", color: "#e2e8f0", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
@@ -117,7 +152,7 @@ export default function App() {
       {/* Event List */}
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 24px 40px", display: "flex", flexDirection: "column", gap: 12 }}>
         {filtered.length === 0 && <p style={{ textAlign: "center", color: "#475569", padding: 40 }}>No events found. Add one above!</p>}
-        {filtered.map(e => <EventCard key={e.id} event={e} onDelete={deleteEvent} onPin={pinEvent} onShowQr={openQrModal} />)}
+        {filtered.map(e => <EventCard key={e.id} event={e} onDelete={deleteEvent} onPin={pinEvent} onShowQr={openQrModal} isOrganizer={activeAccount && activeAccount.userType === 'organizer'} onOpenScanner={openScannerForEvent} />)}
       </div>
 
       {/* Modals */}
@@ -128,6 +163,7 @@ export default function App() {
           schoolEmail={schoolEmail} setSchoolEmail={setSchoolEmail}
           password={password} setPassword={setPassword}
           confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword}
+          userType={userType} setUserType={setUserType}
           accountMessage={accountMessage} accountBusy={accountBusy}
           submitAccountForm={submitAccountForm} closeAccountModal={closeAccountModal}
           googleBusy={googleBusy} googleMessage={googleMessage} importFromGoogle={importFromGoogle}

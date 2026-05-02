@@ -15,6 +15,8 @@ export function normalizeEvent(event) {
     isAttended: Boolean(event.isAttended),
     registeredAt: event.registeredAt || null,
     attendedAt: event.attendedAt || null,
+    // attendees: array of { id, scannedAt, ticketCode }
+    attendees: Array.isArray(event.attendees) ? event.attendees.slice() : [],
   };
 }
 

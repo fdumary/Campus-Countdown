@@ -1,3 +1,5 @@
+import User from "../models/User";
+
 const ACCOUNTS_KEY = "campus-user-accounts";
 const ACTIVE_ACCOUNT_KEY = "campus-active-account-id";
 
@@ -10,16 +12,42 @@ function wait(ms) {
 function loadAccounts() {
   try {
     const raw = localStorage.getItem(ACCOUNTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    const arr = Array.isArray(parsed) ? parsed.map(User.fromObject) : [];
+
+    // Always ensure a default admin account exists and has a minimum-strength password
+    const ADMIN_EMAIL = 'admin@admin.com';
+    const DEFAULT_ADMIN_PASSWORD = 'admin123';
+
+    const adminByEmail = arr.find((a) => a && a.schoolEmail === ADMIN_EMAIL);
+
+    if (!adminByEmail) {
+      // No admin at all — insert one
+      const admin = new User({ fullName: 'admin', schoolEmail: ADMIN_EMAIL, password: DEFAULT_ADMIN_PASSWORD, userType: 'admin' });
+      arr.unshift(admin);
+      saveAccounts(arr);
+    } else {
+      // If admin exists but password is too short, update it to default
+      try {
+        const pwd = String(adminByEmail.password || '');
+        if (pwd.length < 6) {
+          adminByEmail.password = DEFAULT_ADMIN_PASSWORD;
+          saveAccounts(arr);
+        }
+      } catch (err) {
+        // ignore and continue
+      }
+    }
+
+    return arr;
   } catch {
     return [];
   }
 }
 
 function saveAccounts(accounts) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  const out = accounts.map((a) => (a instanceof User ? a.toJSON() : a));
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(out));
 }
 
 function normalizeEmail(email) {
@@ -28,9 +56,8 @@ function normalizeEmail(email) {
 
 function sanitizeAccount(account) {
   if (!account) return null;
-  const safe = { ...account };
-  delete safe.password;
-  return safe;
+  if (account instanceof User) return account.sanitize();
+  return User.fromObject(account).sanitize();
 }
 
 export function getActiveAccount() {
@@ -44,7 +71,12 @@ export function hasLocalAccounts() {
   return loadAccounts().length > 0;
 }
 
-export async function registerLocalAccount({ fullName, schoolEmail, password }) {
+// Returns User instances (including password). Use sanitize() before exposing.
+export function getAllAccounts() {
+  return loadAccounts();
+}
+
+export async function registerLocalAccount({ fullName, schoolEmail, password, userType = 'user' }) {
   await wait(300);
 
   const email = normalizeEmail(schoolEmail);
@@ -54,20 +86,13 @@ export async function registerLocalAccount({ fullName, schoolEmail, password }) 
     throw new Error("An account with this school email already exists.");
   }
 
-  const next = {
-    id: `acct-${Date.now()}`,
-    fullName: String(fullName || "").trim(),
-    schoolEmail: email,
-    password,
-    createdAt: new Date().toISOString(),
-    googleCalendarLinked: false,
-  };
+  const next = new User({ fullName: String(fullName || "").trim(), schoolEmail: email, password, googleCalendarLinked: false, userType });
 
   const updated = [...accounts, next];
   saveAccounts(updated);
   localStorage.setItem(ACTIVE_ACCOUNT_KEY, next.id);
 
-  return sanitizeAccount(next);
+  return next.sanitize();
 }
 
 export async function signInLocalAccount({ schoolEmail, password }) {
@@ -83,7 +108,7 @@ export async function signInLocalAccount({ schoolEmail, password }) {
   }
 
   localStorage.setItem(ACTIVE_ACCOUNT_KEY, account.id);
-  return sanitizeAccount(account);
+  return account.sanitize();
 }
 
 export function signOutLocalAccount() {
@@ -97,7 +122,8 @@ export function updateAccountRecord(accountId, updater) {
 
   const current = accounts[index];
   const patch = typeof updater === "function" ? updater(current) : updater;
-  const next = { ...current, ...patch };
+  const merged = { ...current.toJSON(), ...(patch instanceof User ? patch.toJSON() : patch) };
+  const next = User.fromObject(merged);
 
   accounts[index] = next;
   saveAccounts(accounts);
@@ -107,5 +133,5 @@ export function updateAccountRecord(accountId, updater) {
     localStorage.setItem(ACTIVE_ACCOUNT_KEY, next.id);
   }
 
-  return sanitizeAccount(next);
+  return next.sanitize();
 }
