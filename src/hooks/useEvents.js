@@ -2,23 +2,44 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
 import { normalizeEvent, parseEventFromQrPayload, INITIAL_EVENTS } from "../utils/events";
 import { getTimeLeft } from "../utils/countdown";
+import { updateAccountRecord } from "../services/auth";
 
-export function useEvents() {
+export function useEvents(activeAccount) {
   const [events, setEvents] = useState(() => {
-    const saved = localStorage.getItem("countdown-events");
-    if (!saved) return INITIAL_EVENTS;
+    if (!activeAccount) return [];
+    const saved = activeAccount.events;
+    if (!saved) return [];
     try {
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed)) return INITIAL_EVENTS;
-      return parsed.map(normalizeEvent);
+      if (!Array.isArray(saved)) return [];
+      return saved.map(normalizeEvent);
     } catch {
-      return INITIAL_EVENTS;
+      return [];
     }
   });
 
+  // When activeAccount changes, load its events
   useEffect(() => {
-    localStorage.setItem("countdown-events", JSON.stringify(events));
-  }, [events]);
+    if (!activeAccount) {
+      setEvents([]);
+      return;
+    }
+    const saved = activeAccount.events || [];
+    if (!Array.isArray(saved)) {
+      setEvents([]);
+      return;
+    }
+    setEvents(saved.map(normalizeEvent));
+  }, [activeAccount]);
+
+  // Persist events back to the user's account when they change
+  useEffect(() => {
+    if (!activeAccount) return;
+    try {
+      updateAccountRecord(activeAccount.id, { events });
+    } catch {
+      // ignore
+    }
+  }, [events, activeAccount]);
 
   const [filter, setFilter] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
@@ -30,6 +51,8 @@ export function useEvents() {
   const [importCameraState, setImportCameraState] = useState("idle");
   const importScannerRef = useRef(null);
   const importScanLockRef = useRef(false);
+  const [scannerMode, setScannerMode] = useState("import"); // 'import' | 'attend'
+  const [scanningEventId, setScanningEventId] = useState(null);
   const [showQrModal, setShowQrModal] = useState(false);
   const [activeQrEventId, setActiveQrEventId] = useState(null);
   const [copyMessage, setCopyMessage] = useState("");
@@ -56,6 +79,16 @@ export function useEvents() {
   }, []);
 
   const openImportQrModal = useCallback(() => {
+    setScannerMode('import');
+    setScanningEventId(null);
+    setImportMessage({ type: "idle", text: "" });
+    setImportCameraState("loading");
+    setShowImportQrModal(true);
+  }, []);
+
+  const openScannerForEvent = useCallback((eventId) => {
+    setScannerMode('attend');
+    setScanningEventId(eventId || null);
     setImportMessage({ type: "idle", text: "" });
     setImportCameraState("loading");
     setShowImportQrModal(true);
@@ -71,6 +104,7 @@ export function useEvents() {
         category: parsed.category,
         pinned: false,
         qrCodeValue: parsed.qrCodeValue || undefined,
+        attendees: [],
       });
       return [...current, nextEvent];
     });
@@ -78,6 +112,49 @@ export function useEvents() {
     setShowAdd(false);
     window.setTimeout(() => { closeImportQrModal(); }, 900);
   }, [closeImportQrModal]);
+
+  const createAttendanceFromQr = useCallback((rawPayload) => {
+    const code = String(rawPayload || '').trim();
+    if (!code) {
+      setImportMessage({ type: 'error', text: 'Scanned empty QR.' });
+      return;
+    }
+
+    setEvents((current) => {
+      let found = false;
+      const next = current.map((ev) => {
+        if (scanningEventId && ev.id === scanningEventId) {
+          // target event - record attendance if not already recorded for this ticket
+          const exists = (ev.attendees || []).some(a => a.ticketCode === code);
+          if (!exists) {
+            const attendee = { id: `att-${Date.now()}`, scannedAt: new Date().toISOString(), ticketCode: code };
+            found = true;
+            return { ...ev, attendees: [...(ev.attendees || []), attendee] };
+          }
+        }
+        // fallback: if no scanningEventId provided, match by qrCodeValue
+        if (!scanningEventId && ev.qrCodeValue === code) {
+          const exists = (ev.attendees || []).some(a => a.ticketCode === code);
+          if (!exists) {
+            const attendee = { id: `att-${Date.now()}`, scannedAt: new Date().toISOString(), ticketCode: code };
+            found = true;
+            return { ...ev, attendees: [...(ev.attendees || []), attendee] };
+          }
+        }
+        return ev;
+      });
+
+      if (!found) {
+        setImportMessage({ type: 'error', text: 'No matching event found for scanned ticket.' });
+      } else {
+        setImportMessage({ type: 'success', text: 'Attendance recorded.' });
+        // auto-close after short delay
+        window.setTimeout(() => { closeImportQrModal(); }, 900);
+      }
+
+      return next;
+    });
+  }, [scanningEventId, closeImportQrModal]);
 
   const closeQrModal = useCallback(() => {
     setShowQrModal(false);
@@ -113,9 +190,13 @@ export function useEvents() {
             if (importScanLockRef.current) return;
             importScanLockRef.current = true;
             try {
-              createEventFromQr(decodedText);
+              if (scannerMode === 'import') {
+                createEventFromQr(decodedText);
+              } else {
+                createAttendanceFromQr(decodedText);
+              }
             } catch (error) {
-              setImportMessage({ type: "error", text: error.message || "Could not import event QR." });
+              setImportMessage({ type: "error", text: error.message || "Could not process QR." });
             } finally {
               window.setTimeout(() => { importScanLockRef.current = false; }, 1000);
             }
@@ -184,5 +265,10 @@ export function useEvents() {
     addEvent, deleteEvent, pinEvent,
     openImportQrModal, closeImportQrModal,
     openQrModal, closeQrModal, copyQrCode,
+    // organizer scanner
+    openScannerForEvent,
+    scanningEventId,
+    scannerMode,
   };
 }
+

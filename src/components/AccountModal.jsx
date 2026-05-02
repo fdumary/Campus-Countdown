@@ -1,9 +1,10 @@
 import { btnStyle, inputStyle, overlayStyle, modalCardStyle, closeButtonStyle, statusBadgeStyle } from "../constants/styles";
 
-export default function AccountModal({
+function AccountModal({
   activeAccount, authMode, setAuthMode,
   fullName, setFullName, schoolEmail, setSchoolEmail,
   password, setPassword, confirmPassword, setConfirmPassword,
+  userType, setUserType,
   accountMessage, accountBusy,
   submitAccountForm, closeAccountModal,
   googleBusy, googleMessage, importFromGoogle,
@@ -28,6 +29,20 @@ export default function AccountModal({
               {authMode === "create" && (
                 <input placeholder="Full name" value={fullName} onChange={(e) => setFullName(e.target.value)} style={inputStyle} />
               )}
+
+              {authMode === "create" && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name="userType" value="user" checked={userType === 'user'} onChange={(e) => setUserType(e.target.value)} />
+                    <span style={{ fontSize: 13 }}>User</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="radio" name="userType" value="organizer" checked={userType === 'organizer'} onChange={(e) => setUserType(e.target.value)} />
+                    <span style={{ fontSize: 13 }}>Event organizer</span>
+                  </label>
+                </div>
+              )}
+
               <input placeholder="School email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} style={inputStyle} />
               <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
               {authMode === "create" && (
@@ -67,3 +82,5 @@ export default function AccountModal({
     </div>
   );
 }
+
+export default AccountModal;

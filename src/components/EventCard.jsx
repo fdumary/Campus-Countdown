@@ -3,7 +3,7 @@ import { getTimeLeft, getUrgency } from "../utils/countdown";
 import { urgencyStyles, categoryColors } from "../constants/styles";
 import CountdownUnit from "./CountdownUnit";
 
-export default function EventCard({ event, onDelete, onPin, onShowQr }) {
+export default function EventCard({ event, onDelete, onPin, onShowQr, isOrganizer = false, onOpenScanner }) {
   const [time, setTime] = useState(getTimeLeft(event.date));
   useEffect(() => {
     const iv = setInterval(() => setTime(getTimeLeft(event.date)), 1000);
@@ -48,13 +48,23 @@ export default function EventCard({ event, onDelete, onPin, onShowQr }) {
           <p style={{ fontSize: 12, opacity: 0.7, margin: "4px 0 0" }}>{new Date(event.date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
-          <button
-            onClick={() => onShowQr(event.id)}
-            style={{ background: "rgba(255,255,255,0.2)", border: "none", color: s.text, borderRadius: 8, padding: "0 10px", height: 32, cursor: "pointer", fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}
-            title="Show Ticket"
-          >
-            Show Ticket
-          </button>
+          {isOrganizer ? (
+            <button
+              onClick={() => onOpenScanner && onOpenScanner(event.id)}
+              style={{ background: "rgba(255,255,255,0.12)", border: "none", color: s.text, borderRadius: 8, padding: "0 10px", height: 32, cursor: "pointer", fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}
+              title="Open Scanner"
+            >
+              Open Scanner
+            </button>
+          ) : (
+            <button
+              onClick={() => onShowQr(event.id)}
+              style={{ background: "rgba(255,255,255,0.2)", border: "none", color: s.text, borderRadius: 8, padding: "0 10px", height: 32, cursor: "pointer", fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}
+              title="Show Ticket"
+            >
+              Show Ticket
+            </button>
+          )}
           <button onClick={() => onPin(event.id)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: s.text, borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14 }} title="Pin">
             {event.pinned ? "★" : "☆"}
           </button>
@@ -63,6 +73,13 @@ export default function EventCard({ event, onDelete, onPin, onShowQr }) {
           </button>
         </div>
       </div>
+      {/* Attendee count */}
+      {event.attendees && typeof event.attendees.length === 'number' && (
+        <div style={{ position: 'absolute', right: 12, bottom: 12, fontSize: 12, color: s.text, opacity: 0.9 }}>
+          Attendees: <strong style={{ marginLeft: 6 }}>{(event.attendees || []).length}</strong>
+        </div>
+      )}
+
       {!isPast && time && (
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-start", marginTop: 8 }}>
           <CountdownUnit value={time.d} label="Days" color={s.text} />

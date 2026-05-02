@@ -15,13 +15,14 @@ export function useAccount() {
   const [schoolEmail, setSchoolEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [userType, setUserType] = useState("user");
   const [activeAccount, setActiveAccount] = useState(() => getActiveAccount());
   const [hasAccounts, setHasAccounts] = useState(() => hasLocalAccounts());
   const [accountMessage, setAccountMessage] = useState({ type: "idle", text: "" });
   const [accountBusy, setAccountBusy] = useState(false);
 
   const resetAccountForm = useCallback(() => {
-    setFullName(""); setSchoolEmail(""); setPassword(""); setConfirmPassword("");
+    setFullName(""); setSchoolEmail(""); setPassword(""); setConfirmPassword(""); setUserType("user");
   }, []);
 
   const openAccountModal = useCallback((mode = "create") => {
@@ -62,7 +63,7 @@ export function useAccount() {
 
     try {
       const account = authMode === "create"
-        ? await registerLocalAccount({ fullName: nameValue, schoolEmail: emailValue, password })
+        ? await registerLocalAccount({ fullName: nameValue, schoolEmail: emailValue, password, userType })
         : await signInLocalAccount({ schoolEmail: emailValue, password });
 
       setActiveAccount(account);
@@ -78,7 +79,7 @@ export function useAccount() {
     } finally {
       setAccountBusy(false);
     }
-  }, [authMode, fullName, schoolEmail, password, confirmPassword, resetAccountForm]);
+  }, [authMode, fullName, schoolEmail, password, confirmPassword, userType, resetAccountForm]);
 
   const signOut = useCallback(() => {
     signOutLocalAccount();
@@ -96,6 +97,7 @@ export function useAccount() {
     schoolEmail, setSchoolEmail,
     password, setPassword,
     confirmPassword, setConfirmPassword,
+    userType, setUserType,
     activeAccount, hasAccounts,
     accountMessage, accountBusy,
     openAccountModal, closeAccountModal,
