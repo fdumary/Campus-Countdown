@@ -23,8 +23,7 @@ Built for **CEN 5035-042 Software Engineering**.
 - **Pin & Delete** — Star important events to pin them to the top
 - **Attendee Ticket** — Generate and display QR code tickets that are scanned at check-in
 - **On-Site Account Creation** — Students can create a local attendee account directly at the event
-- **Optional School SSO Link** — Students can optionally connect their school SSO account
-- **Canvas Profile Sync (Mock)** — Canvas profile details sync through a backend-ready frontend contract
+- **Optional Google Calendar Integration** — Students can optionally connect their Google Calendar events
 - **Local Storage Persistence** — Custom events are saved across browser sessions
 - **Next Up Banner** — Highlights the nearest upcoming deadline at the top
 
@@ -100,8 +99,7 @@ Traditional calendars show dates — this app shows **time remaining**. By visua
 
 - Open **Create Account** to create an attendee profile
 - Sign in to an existing account on the same device
-- Optionally choose **Connect School SSO** to link Canvas credentials
-- Use **Sync Canvas Profile** to refresh Canvas profile and calendar data
+- Optionally choose **Connect Google Calendar** to link Google Calendar credentials
 
 ## 📄 License
 
