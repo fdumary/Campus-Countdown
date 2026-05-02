@@ -73,8 +73,8 @@ export default function EventCard({ event, onDelete, onPin, onShowQr, isOrganize
           </button>
         </div>
       </div>
-      {/* Attendee count */}
-      {event.attendees && typeof event.attendees.length === 'number' && (
+      {/* Attendee count - visible only to organizers */}
+      {isOrganizer && event.attendees && typeof event.attendees.length === 'number' && (
         <div style={{ position: 'absolute', right: 12, bottom: 12, fontSize: 12, color: s.text, opacity: 0.9 }}>
           Attendees: <strong style={{ marginLeft: 6 }}>{(event.attendees || []).length}</strong>
         </div>
