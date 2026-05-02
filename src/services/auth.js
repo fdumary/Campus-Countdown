@@ -95,6 +95,23 @@ export async function registerLocalAccount({ fullName, schoolEmail, password, us
   return next.sanitize();
 }
 
+// Create an account without signing the user in (for admin creation)
+export function createLocalAccount({ fullName, schoolEmail, password, userType = 'user' }) {
+  const email = normalizeEmail(schoolEmail);
+  const accounts = loadAccounts();
+  const exists = accounts.some((item) => normalizeEmail(item.schoolEmail) === email);
+  if (exists) {
+    throw new Error("An account with this school email already exists.");
+  }
+
+  const next = new User({ fullName: String(fullName || "").trim(), schoolEmail: email, password, googleCalendarLinked: false, userType });
+  const updated = [...accounts, next];
+  saveAccounts(updated);
+
+  // Do not change ACTIVE_ACCOUNT_KEY — admin stays signed in
+  return next.sanitize();
+}
+
 export async function signInLocalAccount({ schoolEmail, password }) {
   await wait(250);
 
@@ -134,4 +151,24 @@ export function updateAccountRecord(accountId, updater) {
   }
 
   return next.sanitize();
+}
+
+export function deleteAccount(accountId) {
+  const accounts = loadAccounts();
+  const index = accounts.findIndex((item) => item.id === accountId);
+  if (index < 0) return false;
+
+  const account = accounts[index];
+  // Prevent deleting admin accounts
+  if (account && account.userType === 'admin') return false;
+
+  accounts.splice(index, 1);
+  saveAccounts(accounts);
+
+  const activeId = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+  if (activeId === accountId) {
+    localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+  }
+
+  return true;
 }
